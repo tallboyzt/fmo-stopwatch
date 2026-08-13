@@ -1,0 +1,37 @@
+# === macOS ===
+.DS_Store
+*.swp
+
+# === Python ===
+__pycache__/
+*.pyc
+
+# === Arduino / PlatformIO ===
+/build/
+/dist/
+*.elf
+*.map
+
+# === 构建产物（可重新生成） ===
+# 字库/呼号表二进制由脚本生成，不入库
+fwmo_main/font_hansan_24.bin
+fwmo_main/callloc.bin
+fwmo_main/font_fs.bin
+# 旧字库方案生成的 LVGL 字体源码（25MB，可重新生成）
+font/zhongwen.c
+
+# === IDE ===
+.vscode/
+.idea/
+
+# === 临时文件 ===
+*.tmp
+
+# === 参考项目（不随本仓库上传） ===
+demo/
+xiaozhi-esp32-main/
+esp32-audio-communication-main/
+
+# === 旧接收端方案（已被 fmo_tx_espnow 取代） ===
+fmo_tx_esp32/
+audio_receiver/

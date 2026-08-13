@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>无线电语音发送界面 · 1.75" AMOLED</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --black: #000000;
+    --bezel: #2A2A2E;        /* rgb(42,42,46)  */
+    --inner-bezel: #161618;  /* rgb(22,22,24)  */
+    --level-track: #0B2E1A;  /* rgb(11,46,26)  */
+    --green: #00E676;        /* rgb(0,230,118) */
+    --green-glow: rgba(0, 230, 118, 0.6);
+    --text-primary: #FFFFFF;
+    --text-muted: #8A8A8E;   /* rgb(138,138,142) */
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  html, body {
+    width: 100%;
+    height: 100%;
+    background: #000;
+    overflow: hidden;
+    font-family: 'Inter', 'PingFang SC', 'Noto Sans SC', sans-serif;
+  }
+
+  /* ===== Scaling wrapper (fit any viewport) ===== */
+  .scale-wrapper {
+    position: fixed;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: radial-gradient(ellipse at center, #0a0a0f 0%, #000 100%);
+  }
+
+  /* ===== Watch face : main frame 466×466, pure-black AMOLED ===== */
+  .watch-face {
+    position: relative;
+    width: 466px;
+    height: 466px;
+    background-color: var(--black);
+    border-radius: 233px;
+    overflow: hidden;
+    transform-origin: center center;
+  }
+
+  /* ===== Concentric rings (stroke-only circles) ===== */
+  .ring {
+    position: absolute;
+    border-radius: 50%;
+    background: transparent;
+  }
+  /* Bezel Ring — ellipse 466×466 @(0,0), stroke #2A2A2E w2, fill #000 */
+  .bezel-ring {
+    top: 0; left: 0;
+    width: 466px; height: 466px;
+    background-color: var(--black);
+    border: 2px solid var(--bezel);
+  }
+  /* Inner Bezel — ellipse 438×438 @(14,14), stroke #161618 w2 */
+  .inner-bezel {
+    top: 14px; left: 14px;
+    width: 438px; height: 438px;
+    border: 2px solid var(--inner-bezel);
+  }
+  /* Level Track Ring — ellipse 406×406 @(30,30), stroke #0B2E1A w10 */
+  .level-track {
+    top: 30px; left: 30px;
+    width: 406px; height: 406px;
+    border: 10px solid var(--level-track);
+  }
+  /* Transmit Glow Ring — ellipse 406×406 @(30,30), stroke #00E676 w4 + green glow, blinking */
+  .glow-ring {
+    top: 30px; left: 30px;
+    width: 406px; height: 406px;
+    border: 4px solid var(--green);
+    box-shadow: 0 0 14px var(--green-glow);
+    animation: glowBlink 1.1s ease-in-out infinite;
+  }
+  @keyframes glowBlink {
+    0%, 100% { opacity: 1;    box-shadow: 0 0 18px rgba(0, 230, 118, 0.78); }
+    50%      { opacity: 0.55; box-shadow: 0 0 7px  rgba(0, 230, 118, 0.32); }
+  }
+
+  /* ===== Call Sign "BH7ABC" — text @(83,130) 300×56, Inter Bold 46, #FFF, ls 3 ===== */
+  .callsign {
+    position: absolute;
+    top: 130px; left: 83px;
+    width: 300px; height: 56px;
+    font-size: 46px;
+    font-weight: 700;
+    color: var(--text-primary);
+    text-align: center;
+    letter-spacing: 3px;
+    line-height: 1.2;
+    white-space: nowrap;
+  }
+
+  /* ===== Equalizer — frame @(181,228) 104×46, row, gap8, bottom-aligned ===== */
+  .equalizer {
+    position: absolute;
+    top: 228px; left: 181px;
+    width: 104px; height: 46px;
+    display: flex;
+    flex-direction: row;
+    align-items: flex-end;
+    justify-content: flex-start;
+    gap: 8px;
+  }
+  .equalizer .bar {
+    width: 8px;
+    background-color: var(--green);
+    border-radius: 4px;
+    transition: height 0.11s linear;
+  }
+
+  /* ===== Timer "00:12" — text @(143,290) 180×36, Inter Bold 30, #00E676, ls 2 ===== */
+  .timer {
+    position: absolute;
+    top: 290px; left: 143px;
+    width: 180px; height: 36px;
+    font-size: 30px;
+    font-weight: 700;
+    color: var(--green);
+    text-align: center;
+    letter-spacing: 2px;
+    line-height: 36px;
+    white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* ===== Hint "松开A键结束通联" — text @(103,362) 260×21, PingFang SC 15, #8A8A8E ===== */
+  .hint {
+    position: absolute;
+    top: 362px; left: 103px;
+    width: 260px; height: 21px;
+    font-size: 15px;
+    font-weight: 400;
+    color: var(--text-muted);
+    text-align: center;
+    line-height: 21px;
+    white-space: nowrap;
+  }
+</style>
+</head>
+<body>
+
+<div class="scale-wrapper">
+  <div class="watch-face" id="watchFace">
+
+    <!-- Concentric rings -->
+    <div class="ring bezel-ring"></div>
+    <div class="ring inner-bezel"></div>
+    <div class="ring level-track"></div>
+    <div class="ring glow-ring"></div>
+
+    <!-- Call sign -->
+    <div class="callsign">BH7ABC</div>
+
+    <!-- Live voice equalizer -->
+    <div class="equalizer" id="equalizer">
+      <div class="bar" style="height:18px"></div>
+      <div class="bar" style="height:34px"></div>
+      <div class="bar" style="height:44px"></div>
+      <div class="bar" style="height:26px"></div>
+      <div class="bar" style="height:38px"></div>
+      <div class="bar" style="height:20px"></div>
+      <div class="bar" style="height:30px"></div>
+    </div>
+
+    <!-- Timer -->
+    <div class="timer">00:12</div>
+
+    <!-- Hint -->
+    <div class="hint">松开A键结束通联</div>
+
+  </div>
+</div>
+
+<script>
+(function () {
+  'use strict';
+
+  var DESIGN_W = 466;
+  var DESIGN_H = 466;
+
+  /* ---- Fit the 466×466 face into the viewport ---- */
+  var watchFace = document.getElementById('watchFace');
+  function scaleWatch() {
+    var scale = Math.min(window.innerWidth / DESIGN_W, window.innerHeight / DESIGN_H) * 0.85;
+    watchFace.style.transform = 'scale(' + scale + ')';
+  }
+  scaleWatch();
+  window.addEventListener('resize', scaleWatch);
+
+  /* ---- Live voice equalizer (animated within the design envelope) ---- */
+  var bars = Array.prototype.slice.call(document.querySelectorAll('#equalizer .bar'));
+  var MIN = 6, MAX = 46; // container height is 46px
+  function tick() {
+    for (var i = 0; i < bars.length; i++) {
+      var h = MIN + Math.random() * (MAX - MIN);
+      bars[i].style.height = h.toFixed(1) + 'px';
+    }
+  }
+  setInterval(tick, 110);
+})();
+</script>
+
+</body>
+</html>
