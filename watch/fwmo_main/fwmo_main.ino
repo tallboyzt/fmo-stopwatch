@@ -137,7 +137,7 @@ void setup()
         M5.begin(m5cfg);
     }
     display = &M5.Display;
-    display->setBrightness(150); // 最大亮度
+    display->setBrightness(130); // 亮屏亮度（降低省电）
 
     // ── NTP时间同步（UTC+8北京时区） ──
     configTime(8 * 3600, 0, "pool.ntp.org", "time.nist.gov");
@@ -311,6 +311,7 @@ void setup()
             Serial.printf("[WiFi] 未匹配，用当前配置: %s\n", profile->wifi_ssid);
         }
         wifi.begin();
+        WiFi.setSleep(false);   // 默认实时模式（语音/WS 低延迟）；息屏时才开启省电
     }
 
     // ── FMO 通联客户端 ──
@@ -427,7 +428,9 @@ void loop()
         {
             screenOff = false;
             ui->wakeScreen();
-            display->setBrightness(150);   // 恢复背光
+            display->setBrightness(130);   // 恢复亮屏亮度
+            setCpuFrequencyMhz(240);       // 恢复 CPU 高频
+            WiFi.setSleep(false);          // 关闭 WiFi 省电（恢复实时性）
             Serial.println("[屏幕] 唤醒");
         }
         la = a; lb = b;
@@ -452,7 +455,9 @@ void loop()
                 bothPending = false;
                 screenOff = true;
                 ui->startScreenOff();
-                display->setBrightness(60);   // 低亮度（摩斯码绿点可见，亮度60）
+                display->setBrightness(45);   // 低亮度（摩斯码绿点可见，降低省电）
+                setCpuFrequencyMhz(160);      // 息屏降频省电（音频/摩斯码动画仍流畅）
+                WiFi.setSleep(true);          // 开启 WiFi 省电（modem sleep）
                 Serial.println("[屏幕] 息屏");
             }
         }

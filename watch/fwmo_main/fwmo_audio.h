@@ -169,10 +169,10 @@ private:
             {
                 // 8kHz 直出（无升采样，音质最保真）
                 // I2S 为 STEREO 16bit：每帧 = L+R 两个 int16，L/R 写相同样本。
-                // 音量：_volume(0-100) → 8bit 定点系数，100% 时 1.5x 数字放大（避免 2x+DAC+6dB 过载爆音，
-                //       配合 ES8311 DAC +6dB 达到足够响度）；静音 _muted → 输出 0
-                // 系数 = _volume/100 * 384（100% → 384 = 1.5x），带削波钳制
-                uint32_t vol = a->_muted ? 0 : ((uint32_t)a->_volume * 384) / 100;
+                // 音量：_volume(0-100) → 8bit 定点系数，100% 时 1.7x 数字放大（DAC 0dB 下提升响度，
+                //       带削波钳制防爆音）；静音 _muted → 输出 0
+                // 系数 = _volume/100 * 435（100% → 435 = 1.7x），带削波钳制
+                uint32_t vol = a->_muted ? 0 : ((uint32_t)a->_volume * 435) / 100;
                 static int16_t tx8[BLOCK*2];
                 if (vol == 0) {
                     memset(tx8, 0, BLOCK*2*sizeof(int16_t));

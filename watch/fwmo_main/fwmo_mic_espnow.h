@@ -26,7 +26,7 @@
 
 // 接收端 MAC 地址（ESP32 接收端，需烧录后查看串口打印）
 #ifndef FMO_RX_MAC
-#define FMO_RX_MAC  "FF:FF:FF:FF:FF:FF"   // 默认广播（也可填具体 MAC）
+#define FMO_RX_MAC  "7C:4F:AD:2A:8D:00"   // 接收端实测 MAC（ESP-NOW 直连）
 #endif
 
 class FMO_MicEspnow {
@@ -80,19 +80,30 @@ public:
 
     void setTransmit(bool on) {
         if (on == _active) return;
+        // 防抖：停止后 100ms 内不允许重启（防止 A 键抖动反复启停）
+        if (on && (millis() - _lastStopMs < 100)) return;
         if (on) {
             if (WiFi.status() != WL_CONNECTED) { _active = false; return; }
             if (!_audioFull) { _active = false; Serial.println("[ESPNow] 未绑定 AudioFull"); return; }
             // 全双工：不切换 I2S，直接开始采集发送（RX 通道始终运行）
             _sendCtrl(1);   // PTT=1
             delay(20);
+            // 清空 RX DMA 积压（防止按键前采集的旧声音被打包发送）
+            {
+                int16_t flush[480];
+                for (int i = 0; i < 8; i++) {
+                    if (_audioFull->readRx(flush, 480, 5) < 480) break;   // 读到不足一包 → DMA 已空
+                }
+            }
             _running = true;
             _active = true;
+            _warmupSkip = 3;   // 丢弃前3包（A键按下瞬间的按键噪声，~90ms）
             if (_task == nullptr)
                 xTaskCreatePinnedToCore(task, "mic_espnow", 16384, this, 5, &_task, 1);
             Serial.println("[ESPNow] TX开启（全双工采集）");
         } else {
             _running = false;
+            _lastStopMs = millis();
             _sendCtrl(0);   // PTT=0
             if (_task) {
                 // 等任务退出：task 退出时置 _task=nullptr（不调 eTaskGetState！）
@@ -112,6 +123,8 @@ private:
     FMO_SettingsMgr* _settings = nullptr;
     volatile bool _active = false, _running = false;
     TaskHandle_t _task = nullptr;
+    uint32_t _lastStopMs = 0;   // 上次停止时间（防抖）
+    volatile uint8_t _warmupSkip = 0;   // 预热丢弃计数（按键噪声）
     uint16_t _seq = 0;
     char _rxMac[18] = FMO_RX_MAC;
     bool _ready = false;
@@ -151,9 +164,25 @@ private:
 
         while (self->_running) {
             // 全双工 RX 采集（8kHz/16bit STEREO，带超时）
+            // 超时必须 > 读满 240帧 的实际耗时（7.66kHz → 31.3ms），否则超时丢数据 → 包间隙 → 啾啾
             if (!self->_audioFull) { vTaskDelay(pdMS_TO_TICKS(20)); continue; }
-            int got = self->_audioFull->readRx(buf, 480, 30);
+            int got = self->_audioFull->readRx(buf, 480, 50);
             if (got < 480) { vTaskDelay(pdMS_TO_TICKS(5)); continue; }
+            // 预热丢弃：PTT 开启后前3包（A键按下瞬间的按键噪声）不发送
+            if (self->_warmupSkip > 0) { self->_warmupSkip--; continue; }
+            // 诊断：统计本包最大幅值（判断麦克风是否采到声音）
+            {
+                int32_t maxAbs = 0;
+                for (int i = 0; i < 480; i++) {
+                    int32_t a = buf[i]; if (a < 0) a = -a;
+                    if (a > maxAbs) maxAbs = a;
+                }
+                static uint32_t dbgCnt = 0;
+                if ((++dbgCnt % 50) == 1)
+                    Serial.printf("[Mic] maxAbs=%ld nonZero=%d\n",
+                                  (long)maxAbs,
+                                  (int)(maxAbs > 20 ? 1 : 0));
+            }
             // 打包：16bit → 8bit 压缩（取每帧左声道；STEREO 下 L=R，取 L 即单声道）
             uint16_t seq = self->_seq++;
             pkt[0] = 1;                    // PTT=1

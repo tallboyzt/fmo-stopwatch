@@ -148,6 +148,7 @@ private:
     bool _host_changed=false;
     State _state=STATE_DISCONNECTED;
     uint32_t _last_connect=0, _last_audio_retry=0;
+    uint32_t _last_station_poll=0;   // 台站定时刷新时间戳（30s 同步一次）
     uint32_t _reconnect_delay=3000, _audio_retry_delay=3000;   // 重连退避间隔（失败翻倍，30s封顶）
 
     bool _audio_enabled=false, _audio_connected=false, _reconnect_audio=false;
@@ -158,7 +159,7 @@ private:
 
     FMO_StationInfo _current_station;
     int  _pending_set_uid = 0;   // 等待服务器确认的台站uid（确认前本地选择优先）
-    FMO_StationInfo _pinned_list[16]; int _pinned_list_count=0;
+    FMO_StationInfo _pinned_list[64]; int _pinned_list_count=0;   // 全部台站列表（64个，可滚动）
     uint32_t _qso_count=0; int32_t _qso_latest_id=-1; int _qso_scan_page=0;
 
     bool _req_current_station=false, _req_pinned_list=false, _req_set_station=false, _req_qso_scan=false;
@@ -384,10 +385,15 @@ private:
     }
 
     void handleRequests() {
+        // 台站定时刷新：每30秒同步一次当前台站（服务器端变化能及时反映到主页面）
+        if (_station_connected && millis() - _last_station_poll > 30000UL) {
+            _last_station_poll = millis();
+            sendStationMsg("getCurrent", "{}");
+        }
         if (_req_current_station) { _req_current_station=false; sendStationMsg("getCurrent","{}"); }
         if (_req_pinned_list) { _req_pinned_list=false;
             char d[64]; snprintf(d,sizeof(d),"{\"start\":%d,\"count\":%d}",_req_pinned_start,_req_pinned_count);
-            sendStationMsg("getPinnedList",d); }
+            sendStationMsg("getPinnedList",d); }   // 收藏台站列表（服务器暂不支持 getListRange 全部列表）
         if (_req_set_station) { _req_set_station=false;
             char d[32]; snprintf(d,sizeof(d),"{\"uid\":%d}",_set_station_uid);
             sendStationMsg("setCurrent",d); _req_current_station=true; }
@@ -468,12 +474,13 @@ private:
                 strncpy(_current_station.frequency,f,23); _current_station.valid=true;
             }
         }
-        else if (strstr(sub,"getPinnedList")) {
+        else if (strstr(sub,"getPinnedListResponse") || strstr(sub,"getListResponse")) {
+            // getPinnedListResponse = 收藏台站列表（当前服务器支持）；getListResponse = 全部（兼容保留）
             JsonArray items=d["items"].as<JsonArray>(); if(items.isNull()) items=d["list"].as<JsonArray>();
             if (!items.isNull()) {
                 _pinned_list_count=0;
                 for (JsonObject it: items) {
-                    if (_pinned_list_count>=16) break;
+                    if (_pinned_list_count>=64) break;
                     auto& s=_pinned_list[_pinned_list_count];
                     s.uid=it["uid"].as<int>();
                     const char* nm=it["name"].as<const char*>(); if(!nm) nm=""; strncpy(s.name,nm,63);

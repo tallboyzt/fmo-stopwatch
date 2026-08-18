@@ -91,7 +91,7 @@ public:
         // ES8311 寄存器序列（0x00 RESET 开始，全双工 DAC+ADC）
         static const uint8_t regs[][3] = {
             {0x00, 0x80},  // RESET / CSM POWER ON
-            {0x01, 0xB5},  // CLOCK_MANAGER / MCLK=BCLK（Speaker 配置，DAC 优先）
+            {0x01, 0xBF},  // CLKMGR1: 0xBF = bit7 MCLK_SEL|bit5 MCLK_ON|bit4 BCLK_ON|bit3 CLKADC_ON|bit2 CLKDAC_ON|bit1 ANACLKADC_ON|bit0 ANACLKDAC_ON（DAC+ADC 时钟全开=全双工；0xB5 仅 DAC 麦克风全0，0xBA 仅 ADC 扬声器无声）
             {0x02, 0x18},  // CLOCK_MANAGER / MULT_PRE=3
             {0x0D, 0x01},  // SYSTEM / Power up analog
             {0x0E, 0x02},  // SYSTEM / Enable PGA + ADC
@@ -100,7 +100,7 @@ public:
             {0x14, 0x10},  // ADC / Mic1p-Mic1n / PGA GAIN min
             {0x17, 0xFF},  // ADC / ADC_VOLUME max
             {0x1C, 0x6A},  // ADC / EQ bypass + DC offset cancel
-            {0x32, 0xEF},  // DAC / DAC volume (+6dB，M5Unified 默认；全双工无 M5GFX magnification 需靠 DAC 增益补足)
+            {0x32, 0xBF},  // DAC / DAC volume (0dB，降低增益防爆音；数字增益 1.0x 配合)
             {0x37, 0x08},  // DAC / Bypass DAC equalizer
         };
         bool allOk = true;

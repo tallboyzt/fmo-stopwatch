@@ -92,8 +92,12 @@ static void _sanitizeDisplay(const char *in, char *out, int maxLen)
     while (*p && o < maxLen - 4) {
         unsigned char c = *p;
         if (c < 0x80) {
-            // ASCII 可打印保留，控制符/其他替换为空格
-            if (c >= 0x20 && c != 0x7F) out[o++] = (char)c;
+            // ASCII：字母/数字/空格/常用标点保留，其他（|~^`{}等）替换为空格防方块
+            if ((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') ||
+                c == ' ' || c == '-' || c == '_' || c == '.' || c == '/' || c == '(' || c == ')' ||
+                c == '[' || c == ']' || c == ':' || c == ';' || c == ',' || c == '!' || c == '?' ||
+                c == '&' || c == '+' || c == '=' || c == '*' || c == '\'' || c == '"')
+                out[o++] = (char)c;
             else out[o++] = ' ';
             p++;
         } else if ((c & 0xE0) == 0xC0 && o < maxLen - 2 && (p[1] & 0xC0) == 0x80) {
@@ -150,15 +154,20 @@ public:
     bool _screenOff = false;          // 是否息屏中
     lv_obj_t* _offOverlay = nullptr;  // 黑色覆盖层
     lv_obj_t* _offDot = nullptr;      // 摩斯码圆点（绿）
+    lv_obj_t* _offMorse = nullptr;    // 摩斯码点划文本（绿点下方，-. 显示）
     lv_timer_t* _offTimer = nullptr;  // 息屏动画定时器
     int _offPhase = 0;                // 动画相位
     // 摩斯码状态
     static const int MORSE_MAX = 160;
+    static const int MORSE_TEXT_MAX = 48;
     uint16_t _morseDur[MORSE_MAX];    // 每段时长（tick 数）
     bool _morseOn[MORSE_MAX];         // 每段亮/灭
     int _morseCnt = 0;                // 总段数
     int _morseIdx = 0;                // 当前段
     int _morseTick = 0;               // 当前段剩余 tick
+    char _morseStr[MORSE_TEXT_MAX];   // 完整呼号点划串（如 -...-......-.-..-.）
+    int _morseStrLen = 0;             // 点划串总长度
+    int _morseShown = 0;              // 已显示到点划串第几个字符（逐符号累积）
     int _wifiStatus = 0;
     uint32_t _wifiStatTime = 0;
     enum Page
@@ -260,25 +269,33 @@ public:
         return nullptr;
     }
 
-    // ── 生成呼号摩斯码序列（点=1tick 亮，划=3tick 亮，符号间隔1，字符间隔3，呼号间隔7） ──
+    // ── 生成呼号摩斯码序列（点=1tick 亮，划=3tick 亮，符号间隔1，字符间隔1，呼号间隔7） ──
     void _buildMorse(const char* call)
     {
         _morseCnt = 0; _morseIdx = 0; _morseTick = 0;
+        _morseStrLen = 0; _morseShown = 0;
+        _morseStr[0] = 0;
         if (!call) return;
         for (const char* p = call; *p && _morseCnt < MORSE_MAX - 8; p++) {
             const char* code = _morseCode(*p);
             if (!code) continue;
             for (int i = 0; code[i] && _morseCnt < MORSE_MAX - 8; i++) {
-                // 亮段（点=1, 划=3）
-                if (_morseCnt < MORSE_MAX) { _morseDur[_morseCnt] = (code[i]=='.') ? 1 : 3; _morseOn[_morseCnt++] = true; }
+                // 亮段（点=1, 划=3），同时追加到点划串
+                if (_morseCnt < MORSE_MAX) {
+                    _morseDur[_morseCnt] = (code[i]=='.') ? 1 : 3; _morseOn[_morseCnt++] = true;
+                    if (_morseStrLen < MORSE_TEXT_MAX - 1) _morseStr[_morseStrLen++] = code[i];
+                }
                 // 符号间间隔 1（最后一个符号后不加）
                 if (code[i+1] && _morseCnt < MORSE_MAX) { _morseDur[_morseCnt] = 1; _morseOn[_morseCnt++] = false; }
             }
-            // 字符间间隔 3
-            if (_morseCnt < MORSE_MAX) { _morseDur[_morseCnt] = 3; _morseOn[_morseCnt++] = false; }
+            // 字符间间隔 1（空一个点的时间）
+            if (_morseCnt < MORSE_MAX) { _morseDur[_morseCnt] = 1; _morseOn[_morseCnt++] = false; }
+            // 文本：字符间加一个空格（对应闪烁空位）
+            if (*(p+1) && _morseStrLen < MORSE_TEXT_MAX - 1) _morseStr[_morseStrLen++] = ' ';
         }
         // 呼号循环间隔 7
         if (_morseCnt < MORSE_MAX) { _morseDur[_morseCnt] = 7; _morseOn[_morseCnt++] = false; }
+        _morseStr[_morseStrLen] = 0;
         // 初始 tick = 第 0 段时长：让第一段（亮）立即显示，避免动画回调首帧跳过
         if (_morseCnt > 0) _morseTick = _morseDur[0];
     }
@@ -312,7 +329,7 @@ public:
         }
     }
 
-    // ── 息屏动画定时器（呼号摩斯码闪烁） ──
+    // ── 息屏动画定时器（呼号摩斯码闪烁 + 点划文本同步显示） ──
     static void _offAnimCb(lv_timer_t* t)
     {
         FMO_UI_LVGL* self = (FMO_UI_LVGL*)t->user_data;
@@ -323,6 +340,21 @@ public:
         } else {
             self->_morseIdx = (self->_morseIdx + 1) % self->_morseCnt;
             self->_morseTick = self->_morseDur[self->_morseIdx] - 1;
+            // 呼号周期结束（回到第 0 段）：清空文本重新累积
+            if (self->_morseIdx == 0) {
+                self->_morseShown = 0;
+                if (self->_offMorse) lv_label_set_text(self->_offMorse, "");
+            }
+            // 进入亮段：累积显示一个点划符号（与绿点闪烁同步）
+            if (self->_morseOn[self->_morseIdx] && self->_morseShown < self->_morseStrLen) {
+                self->_morseShown++;
+                if (self->_offMorse) {
+                    char buf[MORSE_TEXT_MAX + 4];
+                    int n = self->_morseShown < self->_morseStrLen ? self->_morseShown : self->_morseStrLen;
+                    memcpy(buf, self->_morseStr, n); buf[n] = 0;
+                    lv_label_set_text(self->_offMorse, buf);
+                }
+            }
         }
         bool on = self->_morseOn[self->_morseIdx];
         lv_obj_set_style_bg_opa(self->_offDot, on ? 220 : 0, LV_PART_MAIN | LV_STATE_DEFAULT);
@@ -355,8 +387,23 @@ public:
             lv_obj_set_style_radius(_offDot, LV_RADIUS_CIRCLE, LV_PART_MAIN | LV_STATE_DEFAULT);
             lv_obj_set_style_border_width(_offDot, 0, 0);
             lv_obj_clear_flag(_offDot, LV_OBJ_FLAG_SCROLLABLE);
+            // 摩斯码点划文本（绿点下方，英文 .- 字符，灰色，最大字号，完整显示后居中）
+            _offMorse = lv_label_create(_offOverlay);
+            lv_obj_set_style_text_font(_offMorse, &lv_font_montserrat_48, LV_PART_MAIN | LV_STATE_DEFAULT);
+            lv_obj_set_style_text_color(_offMorse, H(C_MUTED), LV_PART_MAIN | LV_STATE_DEFAULT);
+            lv_obj_set_width(_offMorse, 466);
+            lv_obj_set_style_text_align(_offMorse, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN | LV_STATE_DEFAULT);
+            lv_obj_set_pos(_offMorse, 0, 310);   // 绿点(圆心233)下方
+            lv_label_set_text(_offMorse, "");
         }
         lv_obj_move_foreground(_offOverlay);
+        // 初始化摩斯文本：立即显示第一个符号（与首段绿点亮同步）
+        _morseShown = (_morseStrLen > 0) ? 1 : 0;
+        if (_offMorse && _morseShown > 0) {
+            char buf[MORSE_TEXT_MAX + 4];
+            memcpy(buf, _morseStr, _morseShown); buf[_morseShown] = 0;
+            lv_label_set_text(_offMorse, buf);
+        }
         if (!_offTimer)
             _offTimer = lv_timer_create(_offAnimCb, 120, this);   // 120ms/tick（摩斯节奏）
     }
@@ -371,6 +418,7 @@ public:
         if (_offOverlay) lv_obj_del(_offOverlay);
         _offOverlay = nullptr;
         _offDot = nullptr;
+        _offMorse = nullptr;
     }
     bool isScreenOff() const { return _screenOff; }
 
@@ -471,7 +519,7 @@ private:
     Page _pg = PG_HOME, _prevPg = PG_HOME;
     bool _menuOpen = false;
     int _sel = 0;
-    lv_obj_t *_menuBtns[24] = {};   // 菜单项引用（Device Info 页最多20行）
+    lv_obj_t *_menuBtns[64] = {};   // 菜单项引用（台站列表最多64项）
     lv_obj_t *_menuList = nullptr;  // 当前菜单列表容器（选中滚动/A键滚动用）
     int _menuCount = 0;
     InputMode _inp = INP_NONE;
@@ -857,16 +905,16 @@ private:
                 lv_label_set_text(_call, callTxt);
                 lv_obj_set_style_text_color(_call, H(callCol), LV_PART_MAIN | LV_STATE_DEFAULT);
             }
-            // 呼号所在地：通联中且有呼号时查询城市，否则显示提示"Location"
+            // 呼号所在地：通联中且有呼号时查询城市，否则显示提示"QTH"
             char locBuf[32] = "";
             if (spk && tkr[0] && _g_callLoc) {
                 _g_callLoc->lookup(tkr, locBuf, sizeof(locBuf));
             } else if (!(spk && tkr[0])) {
-                strcpy(locBuf, "Location");   // NOCALL 时提示位置区
+                strcpy(locBuf, "QTH");   // NOCALL 时提示位置区
             }
             if (strcmp(locBuf, _lastCallLoc) != 0) {
                 strncpy(_lastCallLoc, locBuf, sizeof(_lastCallLoc) - 1); _lastCallLoc[sizeof(_lastCallLoc) - 1] = 0;
-                // 字体：中文城市用中文字体，英文(Location)用英文字体（同为24px视觉一致）
+                // 字体：中文城市用中文字体，英文(QTH)用英文字体（同为24px视觉一致）
                 bool hasCJK = ((uint8_t)locBuf[0] >= 0x80);
                 lv_obj_set_style_text_font(_callLoc,
                     hasCJK ? (_g_font_hansan_24 ? _g_font_hansan_24 : &lv_font_montserrat_24)
@@ -925,10 +973,13 @@ private:
                     _layoutWeatherRow();                  // 整组自适应居中（仅在内容变化时重排）
                 static int lastCat = -1;
                 int cat = (int)weather->category();
+                // 边界保护：cat 必须在 wicon_table 范围内，防止越界崩溃
+                if (cat < 0) cat = 0;
+                if (cat > 7) cat = 7;   // wicon_table[] 共 8 项（0..7）
                 if (cat != lastCat) {
                     lastCat = cat;
                     lv_img_set_src(_wthrIcon, wicon_table[cat]);
-                    lv_obj_set_style_img_recolor(_wthrIcon, H(_wthrIconColor(weather->category())), LV_PART_MAIN | LV_STATE_DEFAULT);
+                    lv_obj_set_style_img_recolor(_wthrIcon, H(_wthrIconColor((FMO_Weather::Cat)cat)), LV_PART_MAIN | LV_STATE_DEFAULT);
                     lv_obj_set_style_img_recolor_opa(_wthrIcon, LV_OPA_COVER,
                                                      LV_PART_MAIN | LV_STATE_DEFAULT);
                 }
@@ -1445,7 +1496,7 @@ private:
                 _pg = PG_STATION_LIST;
                 _sel = 0;
                 if (fmo)
-                    fmo->requestPinnedList(0, 16);
+                    fmo->requestPinnedList(0, 64);   // 请求全部台站（64个，可滚动）
                 buildMenu();
                 break;
             case 1:
