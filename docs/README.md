@@ -1,4 +1,4 @@
-# M5StopWatch FMO 通联伴侣
+# FMOwatch--M5StopWatch FMO 通联伴侣
 
 基于 M5StopWatch C152（ESP32-S3 + 1.54" 466×466 AMOLED）的 **FMO 通联伴侣** 固件。
 
