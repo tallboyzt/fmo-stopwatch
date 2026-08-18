@@ -46,6 +46,7 @@ m5stopwatch-fmo/
 │   └── fmo_tx_espnow/   # ESP-NOW 语音接收 → PCM5102A → FMO
 ├── docs/                # 设计文档
 │   ├── README.md        # 本文件
+│   ├── 刷机教程.md       # Arduino IDE 刷机教程
 │   ├── AUDIO_ANALYSIS.md
 │   ├── 接收端设计文档.md
 │   └── radio-voice-tx.html  # 发射界面设计稿
@@ -55,6 +56,8 @@ m5stopwatch-fmo/
 ```
 
 ## 构建
+
+新手刷机请看 **[刷机教程.md](刷机教程.md)**：Arduino IDE 环境安装、板卡/分区设置、固件 + LittleFS 烧录、ESP-NOW 接收端烧录。
 
 ### 手表端（watch/fwmo_main）
 Arduino IDE（m5stack:esp32 3.3.8 core），板卡 `M5StopWatch`：
